@@ -162,6 +162,7 @@ class Model (torch.nn.Module):
             # w tym celu wyłączamy śledzenie gradientu by troche oszczędzić na czasie
             with torch.no_grad():
                 vloss = 0.
+                vacc = 0.
                 for i, v_data in enumerate(test_dataset):
                     v_x, v_true_labels = v_data
 
@@ -171,7 +172,11 @@ class Model (torch.nn.Module):
                     # obliczamy funckje straty
                     vloss += LOSS_FN(v_predicted_labels, v_true_labels).item()
 
+                    vacc += self.accuracy(y_predicted=v_predicted_labels,
+                                          y_true=v_true_labels)
+
                 vloss /= (i+1) # enumerate lczy od 0 więc by poprawnie wyliczyć średnią dodajemy +1
+                vacc /= (i+1)
 
                 # tu jeżeli zaobserwujemy najmniejszy walidacyjny loss podczas uczenia to zapisujemy model we wskazanym folderze
                 if vloss < best_vloss:
@@ -182,9 +187,11 @@ class Model (torch.nn.Module):
                     else:
                         torch.save(self.state_dict(), "model.pt")
 
-                    print(f"Validation loss: {vloss}", u" \033[92m BEST MODEL UP TO DATE, MODEL SAVED \033[0m")
+                    message = u" \033[92m BEST MODEL UP TO DATE, MODEL SAVED \033[0m"
                 else: 
-                    print(f"Validation loss: {vloss}", u" \033[93m MODEL WORSE THAN PREVIOUS, WASN'T SAVED \033[0m")
+                    message = u" \033[93m MODEL WORSE THAN PREVIOUS, WASN'T SAVED \033[0m"
+                    
+                print(f"Loss: {save_loss}   Validation loss: {vloss}    Accuracy: {vacc} \n", message)
 
 
     def __generate_convolutional_block(self, 
@@ -239,6 +246,30 @@ class Model (torch.nn.Module):
         )
 
         return block
+    
+    def accuracy(self,
+                   y_predicted :  torch.Tensor,
+                   y_true : torch.Tensor
+                  ) -> float:
+        """
+        Opis:
+            Oblicza dokładność dla dwóch tensorów
+        
+        Parametry :
+            y_predicted : torch.Tensor
+                tensor będący predykcjami naszego modelu postaci (batch, 102)
+            y_true : torch.Tensor
+                tensor będący prawdzimy wartościami naszych klas
+
+        Zwraca:
+            Wartość dokładności w przedziale [0.0, 1.0]
+        """
+
+        #assert torch.shape(y_predicted)[0] == torch.shape(y_true)[0], "Podane tensory do siebie nie pasują"
+        y_predicted = torch.argmax(y_predicted, dim=1)
+        return torch.sum(torch.eq(y_true, y_predicted).float()) / len(y_true)
+
+        
 
 
 
