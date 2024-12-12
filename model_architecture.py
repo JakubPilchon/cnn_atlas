@@ -1,43 +1,65 @@
 import torch
 import torch.utils.data.dataloader
 import os
+import json
+from typing import List, Union
 
 class Model (torch.nn.Module):
-    def __init__(self):
+    def __init__(self,
+                 model_plan_path : str | os.PathLike
+                ):
         """
         Opis:
-            Implementacja Głębokiej sieci konwolucyjnej, do rozpoznawania kwiatkóq
+            Implementacja Głębokiej sieci konwolucyjnej, do rozpoznawania kwiatków.
+            Automatyczne buduje Model z hiperparametrów z pliku .json.
 
-        Metody:
-            forward :
+        Atrybuty:
+            self.layers : torch.nn.ModuleList
+                Przechowuje zbudowanie bloki sieci
+
+        Publiczne Metody:
+            forward() :
                 implementacja propagacji w przód modelu
-            fit :
+            fit() :
                 Przeprowadza pętle uczenia CNN.
+        
+        Prywatne Metody:
+            __generate_convolutional_block() :
+                Generuje blok konwolucyjny
+            __generate_linear_block() :
+                Generuje blok klasycznej sieci neuronowej 
         """
         super(Model, self).__init__()
 
-        ## MODEL ARCHITECTURE
-        self.activation = torch.nn.ReLU()
-        
-        self.conv_1 = torch.nn.Conv2d(in_channels=3, out_channels=32,kernel_size=5, stride=3, padding=1)
-        self.padd_1 = torch.nn.MaxPool2d(kernel_size= 2,stride=2)
-        self.norm_1 = torch.nn.BatchNorm2d(32)
+        # Ładujemy nasz model z jsona
+        with open(model_plan_path, "r") as file:
+            model_arch = json.load(file)
 
-        self.conv_2 = torch.nn.Conv2d(in_channels=32, out_channels=64,kernel_size=5, stride=3, padding=1)
-        self.padd_2 = torch.nn.MaxPool2d(kernel_size= 2,stride=2)
-        self.norm_2 = torch.nn.BatchNorm2d(64)
+        in_channel : int  = 3
+        #layers : List[Union[torch.nn.Sequential, torch.nn.Flatten]]= []
+        self.layers = torch.nn.ModuleList()
 
-        self.conv_3 = torch.nn.Conv2d(in_channels=64, out_channels=128,kernel_size=3, stride=1, padding=1)
-        self.padd_3 = torch.nn.MaxPool2d(kernel_size= 2,stride=2)
-        self.norm_3 = torch.nn.BatchNorm2d(128)
+        # Budujemy bloki konwolucyjne z opisu z json-a
+        for description in model_arch["convolutional_layers"]:
+            self.layers.extend(self.__generate_convolutional_block(in_channel, **description))
+            in_channel = description["out_channels"]
 
-        self.flatten = torch.nn.Flatten()
-        
-        self.dense_1 = torch.nn.Linear(128*6*8, 2048)
-        
-        self.dense_2 = torch.nn.Linear(2048, 512)
+        # To jest chyba najleniwszy sposób by dostać wymiary naszej sieci xddd
+        # czytajcie, nie oceniajcie
+        in_channel = torch.zeros((1,3,*model_arch["input_size"]))
 
-        self.dense_3 = torch.nn.Linear(512, 102)
+        for layer in self.layers:
+            in_channel  = layer.forward(in_channel)
+
+        in_channel = torch.numel(in_channel)
+
+        self.layers.extend([torch.nn.Flatten()])
+
+        # Budujemy bloki z opisu z json-a
+        for description in model_arch["linear_layers"]:
+            self.layers.extend(self.__generate_linear_block(in_channel, **description))
+            in_channel = description["out_channels"]
+
 
     def forward(self,
                 x: torch.Tensor
@@ -58,32 +80,8 @@ class Model (torch.nn.Module):
                 Formatu (batch, 102)
         
         """
-        ## IMPLEMENT FORWARD PASS HERE
-        x = self.conv_1(x)
-        x = self.padd_1(x)
-        x = self.norm_1(x)
-        x = self.activation(x)
-
-        x = self.conv_2(x)
-        x = self.padd_2(x)
-        x = self.norm_2(x)
-        x = self.activation(x)
-
-        x = self.conv_3(x)
-        x = self.padd_3(x)
-        x = self.norm_3(x)
-        x = self.activation(x)
-
-        x = self.flatten(x)
-       
-        x = self.dense_1(x)
-        x = self.activation(x)
-
-        x = self.dense_2(x)
-        x = self.activation(x)
-
-        x = self.dense_3(x)
-        
+        for layer in self.layers:
+            x = layer.forward(x)
         return x
 
     def fit(self,
@@ -187,6 +185,60 @@ class Model (torch.nn.Module):
                     print(f"Validation loss: {vloss}", u" \033[92m BEST MODEL UP TO DATE, MODEL SAVED \033[0m")
                 else: 
                     print(f"Validation loss: {vloss}", u" \033[93m MODEL WORSE THAN PREVIOUS, WASN'T SAVED \033[0m")
+
+
+    def __generate_convolutional_block(self, 
+                                     in_channels : int,
+                                     out_channels : int,
+                                     conv_kernel_size : int,
+                                     conv_stride : int,
+                                     padding : int,
+                                     pool_kernel_size : int,
+                                     pool_stride : int
+                                    ) -> torch.nn.Sequential:
+        """
+        Opis:
+            Generuje blok konwolucyjny składający się z 
+                1) warstwy konwolucyjnej
+                2) max polling
+                3) normalizacji wsadowej
+                4) funkcji aktywacji ReLU
+        
+        Parametry:
+            Parametrami funkcji są hiperparametry modelu
+        """
+
+        block = torch.nn.Sequential(
+            torch.nn.Conv2d(in_channels, out_channels, conv_kernel_size, conv_stride, padding),
+            torch.nn.MaxPool2d(pool_kernel_size, pool_stride),
+            torch.nn.BatchNorm2d(out_channels),
+            torch.nn.ReLU()
+        )
+
+        return block
+    
+    def __generate_linear_block(self,
+                                in_channels : int,
+                                out_channels : int
+                                ) -> torch.nn.Sequential:
+        """
+        Opis:
+            Generuje blok klasycznej sieci neuronowej składający się z 
+                1) warstwy liniowej
+                2) normalizacji wsadowej
+                3) funkcji aktywacji ReLU
+        
+        Parametry:
+            Parametrami funkcji są hiperparametry modelu
+        """
+
+        block = torch.nn.Sequential(
+            torch.nn.Linear(in_channels, out_channels),
+            torch.nn.BatchNorm1d(out_channels),
+            torch.nn.ReLU()
+        )
+
+        return block
 
 
 
