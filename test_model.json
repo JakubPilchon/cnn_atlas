@@ -3,14 +3,22 @@
     "convolutional_layers" : [
         {
             "out_channels" : 32,
-            "conv_kernel_size" : 5,
+            "conv_kernel_size" : 3,
             "conv_stride" : 3,
             "padding" : 2,
             "pool_kernel_size" : 2,
             "pool_stride" : 2
         },
         {
-           "out_channels" : 64,
+            "out_channels" : 64,
+             "conv_kernel_size" : 5,
+             "conv_stride" : 3,
+             "padding" : 2,
+             "pool_kernel_size" : 2,
+             "pool_stride" : 2 
+        },
+        {
+           "out_channels" : 128,
             "conv_kernel_size" : 5,
             "conv_stride" : 3,
             "padding" : 2,
@@ -20,10 +28,13 @@
     ],
     "linear_layers" : [
         {
+            "out_channels" : 1024
+        },
+        {
             "out_channels" : 512
         },
         {
-            "out_channels" : 102 
+            "out_channels" : 256 
         }
     ]    
 }

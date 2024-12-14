@@ -44,5 +44,5 @@ model = Model("test_model.json")
 model.fit(training_dataloader,
          test_dataloader,
          model_dir="models",
-         epochs=7)
+         epochs=10)
 

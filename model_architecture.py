@@ -60,6 +60,7 @@ class Model (torch.nn.Module):
             self.layers.extend(self.__generate_linear_block(in_channel, **description))
             in_channel = description["out_channels"]
 
+        self.layers.extend([torch.nn.Linear(in_channel, 102)])
 
     def forward(self,
                 x: torch.Tensor
