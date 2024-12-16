@@ -1,5 +1,6 @@
 import torch
 import torch.utils.data.dataloader
+import matplotlib.pyplot as plt
 import os
 import json
 from typing import List, Union
@@ -118,17 +119,23 @@ class Model (torch.nn.Module):
         OPTIMIZER = torch.optim.Adam(self.parameters(), learning_rate)
         LOSS_FN = torch.nn.CrossEntropyLoss()
 
+        vloss_history = []
+        loss_history = []
+        vacc_history = []
+
         # zmienna do przechowywania najlepszego błędu validacyjnego podczas uczenia
         best_vloss = float("inf")
 
         for epoch in range(epochs):
-            print(f"EPOCH: {epoch}/{epochs}")
+            print(f"EPOCH: {epoch+1}/{epochs}")
             
             # tym chciałbym trackować treningowy loss modelu, by potem nawet przesłac to do tensorboard jak bedzie czas to zaimplemetować
             save_loss = 0
 
             # iterujemy biorąc kolejne batche ze zbioru
             for i, data in enumerate(train_dataset):
+                # set training mode
+                self.train()
                 x, true_labels = data
 
                 # zerujemy gradienty
@@ -158,10 +165,12 @@ class Model (torch.nn.Module):
                         loss.item()), end="\r") # loss
 
             save_loss /= i+1
+            loss_history.append(save_loss)
 
             # po aktualizacji wag przeprowadzamy walidacje modelu
             # w tym celu wyłączamy śledzenie gradientu by troche oszczędzić na czasie
             with torch.no_grad():
+                self.eval()
                 vloss = 0.
                 vacc = 0.
                 for i, v_data in enumerate(test_dataset):
@@ -193,6 +202,31 @@ class Model (torch.nn.Module):
                     message = u" \033[93m MODEL WORSE THAN PREVIOUS, WASN'T SAVED \033[0m"
                     
                 print(f"Loss: {save_loss}   Validation loss: {vloss}    Accuracy: {vacc} \n", message)
+                
+                vloss_history.append(vloss)
+                vacc_history.append(vacc)
+
+        # stwórzmy wykres pokazujący historię uczenia modelu
+        fig, (loss_ax, acc_ax) = plt.subplots(2, sharex=True)
+
+        fig.suptitle('Wykresy modelu', fontsize=36)
+        fig.set_figheight(10)
+        fig.set_figwidth(10)
+
+        loss_ax.plot(vloss_history, label="walidacja")
+        loss_ax.plot(loss_history, label="trening")
+        loss_ax.set_title("Funkcja straty")
+        loss_ax.legend(loc="upper right")
+        loss_ax.set_xlabel("epoch")
+        loss_ax.set_ylabel("Wartość funkcji straty")
+
+        acc_ax.plot(vacc_history)
+        acc_ax.set_title("Dokładność")
+        acc_ax.set_xlabel("epoch")
+        acc_ax.set_ylabel("Wartość dokładności")
+        acc_ax.set_yticks([0. , 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
+
+        fig.savefig("plots/model_plot.png")
 
 
     def __generate_convolutional_block(self, 
@@ -202,7 +236,8 @@ class Model (torch.nn.Module):
                                      conv_stride : int,
                                      padding : int,
                                      pool_kernel_size : int,
-                                     pool_stride : int
+                                     pool_stride : int,
+                                     dropout_rate : int
                                     ) -> torch.nn.Sequential:
         """
         Opis:
@@ -220,6 +255,7 @@ class Model (torch.nn.Module):
             torch.nn.Conv2d(in_channels, out_channels, conv_kernel_size, conv_stride, padding),
             torch.nn.MaxPool2d(pool_kernel_size, pool_stride),
             torch.nn.BatchNorm2d(out_channels),
+            torch.nn.Dropout2d(dropout_rate),
             torch.nn.ReLU()
         )
 
@@ -227,7 +263,8 @@ class Model (torch.nn.Module):
     
     def __generate_linear_block(self,
                                 in_channels : int,
-                                out_channels : int
+                                out_channels : int,
+                                dropout_rate : int
                                 ) -> torch.nn.Sequential:
         """
         Opis:
@@ -243,7 +280,8 @@ class Model (torch.nn.Module):
         block = torch.nn.Sequential(
             torch.nn.Linear(in_channels, out_channels),
             torch.nn.BatchNorm1d(out_channels),
-            torch.nn.ReLU()
+            torch.nn.ReLU(),
+            torch.nn.Dropout(dropout_rate)
         )
 
         return block

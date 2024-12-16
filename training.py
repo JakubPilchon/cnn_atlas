@@ -23,6 +23,7 @@ transforms = Compose([
 training_dataset = ImageFolder(root="train", transform=transforms)
 test_dataset = ImageFolder(root="valid", transform=transforms)
 
+
 # Dataloader od Datasetu różni się tym że 1) Dataloader jest z batchowany 2) Dataloader jest generatorem, więc pozwala nam nieco oszczędzić na pamięci
 training_dataloader = DataLoader(training_dataset,
                                  batch_size=32,
@@ -37,12 +38,12 @@ test_dataloader = DataLoader(test_dataset,
 print("Dataset loaded")
 
 
-model = Model("test_model.json")
+model = Model("test_dropout.json")
 
 
 # uczenie modelu
 model.fit(training_dataloader,
          test_dataloader,
          model_dir="models",
-         epochs=10)
+         epochs=23)
 
