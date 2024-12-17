@@ -1,43 +1,67 @@
 import torch
 import torch.utils.data.dataloader
+import matplotlib.pyplot as plt
 import os
+import json
+from typing import List, Union
 
 class Model (torch.nn.Module):
-    def __init__(self):
+    def __init__(self,
+                 model_plan_path : str | os.PathLike
+                ):
         """
         Opis:
-            Implementacja Głębokiej sieci konwolucyjnej, do rozpoznawania kwiatkóq
+            Implementacja Głębokiej sieci konwolucyjnej, do rozpoznawania kwiatków.
+            Automatyczne buduje Model z hiperparametrów z pliku .json.
 
-        Metody:
-            forward :
+        Atrybuty:
+            self.layers : torch.nn.ModuleList
+                Przechowuje zbudowanie bloki sieci
+
+        Publiczne Metody:
+            forward() :
                 implementacja propagacji w przód modelu
-            fit :
+            fit() :
                 Przeprowadza pętle uczenia CNN.
+        
+        Prywatne Metody:
+            __generate_convolutional_block() :
+                Generuje blok konwolucyjny
+            __generate_linear_block() :
+                Generuje blok klasycznej sieci neuronowej 
         """
         super(Model, self).__init__()
 
-        ## MODEL ARCHITECTURE
-        self.activation = torch.nn.ReLU()
-        
-        self.conv_1 = torch.nn.Conv2d(in_channels=3, out_channels=32,kernel_size=5, stride=3, padding=1)
-        self.padd_1 = torch.nn.MaxPool2d(kernel_size= 2,stride=2)
-        self.norm_1 = torch.nn.BatchNorm2d(32)
+        # Ładujemy nasz model z jsona
+        with open(model_plan_path, "r") as file:
+            model_arch = json.load(file)
 
-        self.conv_2 = torch.nn.Conv2d(in_channels=32, out_channels=64,kernel_size=5, stride=3, padding=1)
-        self.padd_2 = torch.nn.MaxPool2d(kernel_size= 2,stride=2)
-        self.norm_2 = torch.nn.BatchNorm2d(64)
+        in_channel : int  = 3
+        #layers : List[Union[torch.nn.Sequential, torch.nn.Flatten]]= []
+        self.layers = torch.nn.ModuleList()
 
-        self.conv_3 = torch.nn.Conv2d(in_channels=64, out_channels=128,kernel_size=3, stride=1, padding=1)
-        self.padd_3 = torch.nn.MaxPool2d(kernel_size= 2,stride=2)
-        self.norm_3 = torch.nn.BatchNorm2d(128)
+        # Budujemy bloki konwolucyjne z opisu z json-a
+        for description in model_arch["convolutional_layers"]:
+            self.layers.extend(self.__generate_convolutional_block(in_channel, **description))
+            in_channel = description["out_channels"]
 
-        self.flatten = torch.nn.Flatten()
-        
-        self.dense_1 = torch.nn.Linear(128*6*8, 2048)
-        
-        self.dense_2 = torch.nn.Linear(2048, 512)
+        # To jest chyba najleniwszy sposób by dostać wymiary naszej sieci xddd
+        # czytajcie, nie oceniajcie
+        in_channel = torch.zeros((1,3,*model_arch["input_size"]))
 
-        self.dense_3 = torch.nn.Linear(512, 102)
+        for layer in self.layers:
+            in_channel  = layer.forward(in_channel)
+
+        in_channel = torch.numel(in_channel)
+
+        self.layers.extend([torch.nn.Flatten()])
+
+        # Budujemy bloki z opisu z json-a
+        for description in model_arch["linear_layers"]:
+            self.layers.extend(self.__generate_linear_block(in_channel, **description))
+            in_channel = description["out_channels"]
+
+        self.layers.extend([torch.nn.Linear(in_channel, 102)])
 
     def forward(self,
                 x: torch.Tensor
@@ -58,32 +82,8 @@ class Model (torch.nn.Module):
                 Formatu (batch, 102)
         
         """
-        ## IMPLEMENT FORWARD PASS HERE
-        x = self.conv_1(x)
-        x = self.padd_1(x)
-        x = self.norm_1(x)
-        x = self.activation(x)
-
-        x = self.conv_2(x)
-        x = self.padd_2(x)
-        x = self.norm_2(x)
-        x = self.activation(x)
-
-        x = self.conv_3(x)
-        x = self.padd_3(x)
-        x = self.norm_3(x)
-        x = self.activation(x)
-
-        x = self.flatten(x)
-       
-        x = self.dense_1(x)
-        x = self.activation(x)
-
-        x = self.dense_2(x)
-        x = self.activation(x)
-
-        x = self.dense_3(x)
-        
+        for layer in self.layers:
+            x = layer.forward(x)
         return x
 
     def fit(self,
@@ -119,17 +119,23 @@ class Model (torch.nn.Module):
         OPTIMIZER = torch.optim.Adam(self.parameters(), learning_rate)
         LOSS_FN = torch.nn.CrossEntropyLoss()
 
+        vloss_history = []
+        loss_history = []
+        vacc_history = []
+
         # zmienna do przechowywania najlepszego błędu validacyjnego podczas uczenia
         best_vloss = float("inf")
 
         for epoch in range(epochs):
-            print(f"EPOCH: {epoch}/{epochs}")
+            print(f"EPOCH: {epoch+1}/{epochs}")
             
             # tym chciałbym trackować treningowy loss modelu, by potem nawet przesłac to do tensorboard jak bedzie czas to zaimplemetować
             save_loss = 0
 
             # iterujemy biorąc kolejne batche ze zbioru
             for i, data in enumerate(train_dataset):
+                # set training mode
+                self.train()
                 x, true_labels = data
 
                 # zerujemy gradienty
@@ -159,11 +165,14 @@ class Model (torch.nn.Module):
                         loss.item()), end="\r") # loss
 
             save_loss /= i+1
+            loss_history.append(save_loss)
 
             # po aktualizacji wag przeprowadzamy walidacje modelu
             # w tym celu wyłączamy śledzenie gradientu by troche oszczędzić na czasie
             with torch.no_grad():
+                self.eval()
                 vloss = 0.
+                vacc = 0.
                 for i, v_data in enumerate(test_dataset):
                     v_x, v_true_labels = v_data
 
@@ -173,7 +182,11 @@ class Model (torch.nn.Module):
                     # obliczamy funckje straty
                     vloss += LOSS_FN(v_predicted_labels, v_true_labels).item()
 
+                    vacc += self.accuracy(y_predicted=v_predicted_labels,
+                                          y_true=v_true_labels)
+
                 vloss /= (i+1) # enumerate lczy od 0 więc by poprawnie wyliczyć średnią dodajemy +1
+                vacc /= (i+1)
 
                 # tu jeżeli zaobserwujemy najmniejszy walidacyjny loss podczas uczenia to zapisujemy model we wskazanym folderze
                 if vloss < best_vloss:
@@ -184,9 +197,118 @@ class Model (torch.nn.Module):
                     else:
                         torch.save(self.state_dict(), "model.pt")
 
-                    print(f"Validation loss: {vloss}", u" \033[92m BEST MODEL UP TO DATE, MODEL SAVED \033[0m")
+                    message = u" \033[92m BEST MODEL UP TO DATE, MODEL SAVED \033[0m"
                 else: 
-                    print(f"Validation loss: {vloss}", u" \033[93m MODEL WORSE THAN PREVIOUS, WASN'T SAVED \033[0m")
+                    message = u" \033[93m MODEL WORSE THAN PREVIOUS, WASN'T SAVED \033[0m"
+                    
+                print(f"Loss: {save_loss}   Validation loss: {vloss}    Accuracy: {vacc} \n", message)
+                
+                vloss_history.append(vloss)
+                vacc_history.append(vacc)
+
+        # stwórzmy wykres pokazujący historię uczenia modelu
+        fig, (loss_ax, acc_ax) = plt.subplots(2, sharex=True)
+
+        fig.suptitle('Wykresy modelu', fontsize=36)
+        fig.set_figheight(10)
+        fig.set_figwidth(10)
+
+        loss_ax.plot(vloss_history, label="walidacja")
+        loss_ax.plot(loss_history, label="trening")
+        loss_ax.set_title("Funkcja straty")
+        loss_ax.legend(loc="upper right")
+        loss_ax.set_xlabel("epoch")
+        loss_ax.set_ylabel("Wartość funkcji straty")
+
+        acc_ax.plot(vacc_history)
+        acc_ax.set_title("Dokładność")
+        acc_ax.set_xlabel("epoch")
+        acc_ax.set_ylabel("Wartość dokładności")
+        acc_ax.set_yticks([0. , 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0])
+
+        fig.savefig("plots/model_plot.png")
+
+
+    def __generate_convolutional_block(self, 
+                                     in_channels : int,
+                                     out_channels : int,
+                                     conv_kernel_size : int,
+                                     conv_stride : int,
+                                     padding : int,
+                                     pool_kernel_size : int,
+                                     pool_stride : int,
+                                     dropout_rate : int
+                                    ) -> torch.nn.Sequential:
+        """
+        Opis:
+            Generuje blok konwolucyjny składający się z 
+                1) warstwy konwolucyjnej
+                2) max polling
+                3) normalizacji wsadowej
+                4) funkcji aktywacji ReLU
+        
+        Parametry:
+            Parametrami funkcji są hiperparametry modelu
+        """
+
+        block = torch.nn.Sequential(
+            torch.nn.Conv2d(in_channels, out_channels, conv_kernel_size, conv_stride, padding),
+            torch.nn.MaxPool2d(pool_kernel_size, pool_stride),
+            torch.nn.BatchNorm2d(out_channels),
+            torch.nn.Dropout2d(dropout_rate),
+            torch.nn.ReLU()
+        )
+
+        return block
+    
+    def __generate_linear_block(self,
+                                in_channels : int,
+                                out_channels : int,
+                                dropout_rate : int
+                                ) -> torch.nn.Sequential:
+        """
+        Opis:
+            Generuje blok klasycznej sieci neuronowej składający się z 
+                1) warstwy liniowej
+                2) normalizacji wsadowej
+                3) funkcji aktywacji ReLU
+        
+        Parametry:
+            Parametrami funkcji są hiperparametry modelu
+        """
+
+        block = torch.nn.Sequential(
+            torch.nn.Linear(in_channels, out_channels),
+            torch.nn.BatchNorm1d(out_channels),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(dropout_rate)
+        )
+
+        return block
+    
+    def accuracy(self,
+                   y_predicted :  torch.Tensor,
+                   y_true : torch.Tensor
+                  ) -> float:
+        """
+        Opis:
+            Oblicza dokładność dla dwóch tensorów
+        
+        Parametry :
+            y_predicted : torch.Tensor
+                tensor będący predykcjami naszego modelu postaci (batch, 102)
+            y_true : torch.Tensor
+                tensor będący prawdzimy wartościami naszych klas
+
+        Zwraca:
+            Wartość dokładności w przedziale [0.0, 1.0]
+        """
+
+        #assert torch.shape(y_predicted)[0] == torch.shape(y_true)[0], "Podane tensory do siebie nie pasują"
+        y_predicted = torch.argmax(y_predicted, dim=1)
+        return torch.sum(torch.eq(y_true, y_predicted).float()) / len(y_true)
+
+        
 
 
 

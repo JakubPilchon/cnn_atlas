@@ -1,0 +1,46 @@
+{
+    "input_size" : [500, 600],
+    "convolutional_layers" : [
+        {
+            "out_channels" : 32,
+            "conv_kernel_size" : 3,
+            "conv_stride" : 3,
+            "padding" : 2,
+            "pool_kernel_size" : 2,
+            "pool_stride" : 2,
+            "dropout_rate" : 0.1
+        },
+        {
+            "out_channels" : 64,
+             "conv_kernel_size" : 5,
+             "conv_stride" : 3,
+             "padding" : 2,
+             "pool_kernel_size" : 2,
+             "pool_stride" : 2,
+             "dropout_rate" : 0.2
+        },
+        {
+           "out_channels" : 128,
+            "conv_kernel_size" : 5,
+            "conv_stride" : 3,
+            "padding" : 2,
+            "pool_kernel_size" : 2,
+            "pool_stride" : 2,
+            "dropout_rate" : 0.2
+        }
+    ],
+    "linear_layers" : [
+        {
+            "out_channels" : 1024,
+            "dropout_rate" : 0.1
+        },
+        {
+            "out_channels" : 512,
+            "dropout_rate" : 0.1
+        },
+        {
+            "out_channels" : 256,
+            "dropout_rate" : 0.1
+        }
+    ]    
+}

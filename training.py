@@ -2,7 +2,9 @@ from torchvision.transforms.v2 import Compose, Resize, RandomHorizontalFlip, ToI
 from torchvision.datasets import ImageFolder
 from torch.utils.data import DataLoader
 import torch
+import json
 
+#from model_architecture import Model
 from model_architecture import Model
 
 # musze obczaić o co biega z gpu, bo muszę władować dataloader do GPU ale ciężej jest z tym niż myślałem
@@ -21,6 +23,7 @@ transforms = Compose([
 training_dataset = ImageFolder(root="train", transform=transforms)
 test_dataset = ImageFolder(root="valid", transform=transforms)
 
+
 # Dataloader od Datasetu różni się tym że 1) Dataloader jest z batchowany 2) Dataloader jest generatorem, więc pozwala nam nieco oszczędzić na pamięci
 training_dataloader = DataLoader(training_dataset,
                                  batch_size=32,
@@ -35,11 +38,12 @@ test_dataloader = DataLoader(test_dataset,
 print("Dataset loaded")
 
 
-model = Model()
+model = Model("test_dropout.json")
+
 
 # uczenie modelu
 model.fit(training_dataloader,
-          test_dataloader,
-          epochs=5,
-          model_dir="models")
+         test_dataloader,
+         model_dir="models",
+         epochs=23)
 
